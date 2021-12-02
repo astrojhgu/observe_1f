@@ -3,7 +3,8 @@ use rustfft::{
 };
 
 use rand::{
-    thread_rng, SeedableRng
+    SeedableRng
+    //, thread_rng
 };
 
 use rand_chacha::{
@@ -14,7 +15,7 @@ use ndarray::{
     Array2
     , Axis
     , s
-    , parallel::prelude::*
+    //, parallel::prelude::*
 };
 
 use ndarray_npy::{
@@ -33,7 +34,7 @@ use clap::{
 };
 
 use pinknoise::{
-    VmPinkRGN
+    VmPinkRng
 };
 
 
@@ -88,7 +89,7 @@ fn main() {
 
     let mut rng=ChaCha8Rng::from_entropy();
 
-    let mut vmpn=VmPinkRGN::<i32, 48>::new(16, &mut rng);
+    let mut vmpn=VmPinkRng::<f64, 48>::new(&mut rng);
 
     let mut output=Array2::zeros((npt, nch));
     
@@ -97,7 +98,7 @@ fn main() {
             println!("{}", i as f64/ npt as f64);
         }
         buffer.iter_mut().for_each(|x|{
-            *x=(vmpn.get(&mut rng) as f64).into();
+            *x=vmpn.get(&mut rng).into();
         });
         buffer.axis_iter_mut(Axis(0)).for_each(|mut row|{
             fft.process(row.as_slice_mut().unwrap());
