@@ -3,12 +3,17 @@ use rustfft::{
 };
 
 use rand::{
-    SeedableRng
+    Rng
+    ,SeedableRng
     //, thread_rng
 };
 
 use rand_chacha::{
     ChaCha8Rng
+};
+
+use rand_distr::{
+    StandardNormal
 };
 
 use ndarray::{
@@ -68,6 +73,26 @@ fn main() {
             .about("number of points")
         )
         .arg(
+            Arg::new("pink_rng_order")
+            .short('p')
+            .long("po")
+            .takes_value(true)
+            .value_name("order")
+            .required(false)
+            .default_value("48")
+            .about("pink noise generator order")
+        )
+        .arg(
+            Arg::new("gain_std")
+            .short('g')
+            .long("gs")
+            .takes_value(true)
+            .value_name("gain std")
+            .required(false)
+            .default_value("0.01")
+            .about("gain std in dB")
+        )
+        .arg(
             Arg::new("out")
             .short('o')
             .long("out")
@@ -82,6 +107,8 @@ fn main() {
     let ncum=matches.value_of("ncum").unwrap().parse::<usize>().unwrap();
     let outname=matches.value_of("out").unwrap();
     let npt=matches.value_of("npt").unwrap().parse::<usize>().unwrap();
+    let pno=matches.value_of("pink_rng_order").unwrap().parse::<usize>().unwrap();
+    let gs=matches.value_of("gain_std").unwrap().parse::<f64>().unwrap();
 
     let mut planner=FftPlanner::<f64>::new();
     let fft=planner.plan_fft_forward(nch*2);
@@ -89,7 +116,7 @@ fn main() {
 
     let mut rng=ChaCha8Rng::from_entropy();
 
-    let mut vmpn=VmPinkRng::<f64>::new(48, &mut rng);
+    let mut vmpn=VmPinkRng::<f64>::new(pno, &mut rng);
 
     let mut output=Array2::zeros((npt, nch));
     
@@ -98,7 +125,9 @@ fn main() {
             println!("{}", i as f64/ npt as f64);
         }
         buffer.iter_mut().for_each(|x|{
-            *x=vmpn.get(&mut rng).into();
+            let gain=10_f64.powf(vmpn.get(&mut rng)*gs/10.0);
+            let signal:f64=rng.sample(StandardNormal);
+            *x=(signal*gain).into();
         });
         buffer.axis_iter_mut(Axis(0)).for_each(|mut row|{
             fft.process(row.as_slice_mut().unwrap());

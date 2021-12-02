@@ -6,6 +6,7 @@ ndarray-npy='0.8.1'
 num='0.4.0'
 rand='0.8.4'
 rand_chacha='0.3.1'
+rand_distr='0.4.2'
 pinknoise={path='../pinknoise'}
 
 [package]
