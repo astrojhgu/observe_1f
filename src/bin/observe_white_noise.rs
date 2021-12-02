@@ -4,6 +4,8 @@ use std::{
     path::Path,
 };
 
+use std::time::{Instant};
+
 use serde_yaml::{from_reader, to_writer};
 
 use rustfft::FftPlanner;
@@ -131,9 +133,10 @@ fn main() {
         VmPinkRng::<f64>::new(pno, &mut rng)
     };
 
+    let now = Instant::now();
     for i in 0..npt {
         {
-            println!("{} {}",i,  i as f64 / npt as f64);
+            println!("{} {} {:?}",i,  i as f64 / npt as f64, now.elapsed());
         }
         buffer.iter_mut().for_each(|x| {
             let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
