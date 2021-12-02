@@ -133,7 +133,7 @@ fn main() {
 
     for i in 0..npt {
         {
-            println!("{}", i as f64 / npt as f64);
+            println!("{} {}",i,  i as f64 / npt as f64);
         }
         buffer.iter_mut().for_each(|x| {
             let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
