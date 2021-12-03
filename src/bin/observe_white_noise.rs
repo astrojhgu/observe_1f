@@ -20,8 +20,9 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::StandardNormal;
 
 use ndarray::{
-    s, //, parallel::prelude::*
-    Array2,
+    s
+    , parallel::prelude::*
+    , Array2,
     Axis,
 };
 
@@ -143,7 +144,9 @@ fn main() {
             let signal: f64 = rng.sample(StandardNormal);
             *x = (signal * gain).into();
         });
-        buffer.axis_iter_mut(Axis(0)).for_each(|mut row| {
+        buffer.axis_iter_mut(Axis(0))
+        .into_par_iter()
+        .for_each(|mut row| {
             fft.process(row.as_slice_mut().unwrap());
         });
         let outbuf = buffer
