@@ -4,11 +4,10 @@ use std::{
     path::Path,
 };
 
-use rayon::prelude::*;
+//use rayon::prelude::*;
 
 use std::time::{Instant};
 
-use rayon::iter::IntoParallelRefMutIterator;
 use serde_yaml::{from_reader, to_writer};
 
 #[cfg(target_arch="x86_64")]
@@ -155,9 +154,8 @@ fn main() {
     
 
     let mut rng = ChaCha8Rng::from_entropy();
-    let mut rng2 = ChaCha8Rng::from_entropy();
 
-    let vmpn1 = if Path::new(state1_name.as_str()).exists() {
+    let mut vmpn1 = if Path::new(state1_name.as_str()).exists() {
         println!("read pink noise state from {}", state1_name.as_str());
         let mut state_file = File::open(state1_name.as_str()).unwrap();
         from_reader(&mut state_file).unwrap()
@@ -165,7 +163,7 @@ fn main() {
         VmPinkRng::<f64>::new(pno, &mut rng)
     };
 
-    let vmpn2 = if Path::new(state2_name.as_str()).exists() {
+    let mut vmpn2 = if Path::new(state2_name.as_str()).exists() {
         println!("read pink noise state from {}", state2_name.as_str());
         let mut state_file = File::open(state2_name.as_str()).unwrap();
         from_reader(&mut state_file).unwrap()
@@ -173,22 +171,21 @@ fn main() {
         VmPinkRng::<f64>::new(pno, &mut rng)
     };
 
-    let mut vmpns=[vmpn1, vmpn2];
-
     let now = Instant::now();
     for i in 0..npt {
         {
             println!("{} {} {:?}",i,  i as f64 / npt as f64, now.elapsed());
         }
+        buffer.iter_mut().for_each(|x| {
+            //[&mut vmpn1, &mut vmpn2].par_iter_mut().zip([&mut rng, &mut rng2].par_iter_mut()).map(|(g,r)|{
+            //    g.get(*r)
+            //});
 
-        let pink_noise_numbers:Vec<_>=vmpns.par_iter_mut().zip([&mut rng, &mut rng2].par_iter_mut()).map(|(g,r)|{
-            (0..ncum*2*nch).map(|_|{g.get(*r)}).collect::<Vec<_>>()
-        }).collect();
-
-        buffer.iter_mut().zip(pink_noise_numbers[0].iter().zip(pink_noise_numbers[1].iter())).for_each(|(x, (&r1,&r2))| {
-            
-            let gain = 10_f64.powf(r1 * gs / 10.0);
-            let g2=r2*gs2;
+            let gain = 10_f64.powf(vmpn1.get(&mut rng) * gs / 10.0);
+            let g2=if gs2==0.0{0.0}
+            else{
+                vmpn2.get(&mut rng)*gs2
+            };
             let signal: f64 = rng.sample(StandardNormal);
             *x = (signal * gain+signal.powi(2)*g2).into();
         });
@@ -210,9 +207,9 @@ fn main() {
             .unwrap();
 
         let mut state_file = File::create(state1_name.as_str()).unwrap();
-        to_writer(&mut state_file, &vmpns[0]).unwrap();
+        to_writer(&mut state_file, &vmpn1).unwrap();
         let mut state_file = File::create(state2_name.as_str()).unwrap();
-        to_writer(&mut state_file, &vmpns[1]).unwrap();
+        to_writer(&mut state_file, &vmpn2).unwrap();
 
         let mut outfile = OpenOptions::new()
             .create(true)
