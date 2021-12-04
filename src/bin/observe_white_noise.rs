@@ -27,6 +27,7 @@ use rand_distr::StandardNormal;
 
 use ndarray::{
     s
+    , parallel::prelude::*
     , Array2,
     Axis,
 };
@@ -178,8 +179,10 @@ fn main() {
 
             let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
             let signal: f64 = rng.sample(StandardNormal);
-            *x = saturate(signal * gain, satu).into();
+            *x = (signal * gain).into();
         });
+
+        buffer.par_map_inplace(|x| x.re=saturate(x.re, satu));
 
         fft.process_with_scratch(buffer.as_slice_mut().unwrap(), &mut scratch);
         //fft.process_outofplace_with_scratch(buffer.as_slice_mut().unwrap(), buffer_fft_output.as_slice_mut().unwrap(), &mut scratch);
