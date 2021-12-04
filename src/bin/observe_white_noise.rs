@@ -80,7 +80,7 @@ fn main() {
                 .takes_value(true)
                 .value_name("state file")
                 .required(false)
-                .default_value("state")
+                .default_value("state.yaml")
                 .about("pink noise generator state"),
         )
         .arg(
