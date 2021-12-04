@@ -27,7 +27,7 @@ use rand_distr::StandardNormal;
 
 use ndarray::{
     s
-    , parallel::prelude::*
+    //, parallel::prelude::*
     , Array2,
     Axis,
 };
