@@ -4,11 +4,17 @@ use std::{
     path::Path,
 };
 
+use rayon::prelude::*;
+
 use std::time::{Instant};
 
 use serde_yaml::{from_reader, to_writer};
 
-use rustfft::FftPlanner;
+#[cfg(target_arch="x86_64")]
+use rustfft::FftPlannerSse as FftPlanner;
+
+#[cfg(target_arch="aarch64")]
+use rustfft::FftPlanner as FftPlanner;
 
 use rand::{
     Rng,
@@ -21,7 +27,7 @@ use rand_distr::StandardNormal;
 
 use ndarray::{
     s
-    , parallel::prelude::*
+    //, parallel::prelude::*
     , Array2,
     Axis,
 };
@@ -120,9 +126,19 @@ fn main() {
         .unwrap();
     let state_fname = matches.value_of("state_file").unwrap();
 
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(nch * 2);
+    
+    let fft = {
+        #[cfg(target_arch="x86_64")]
+        let mut planner = FftPlanner::<f64>::new().unwrap();
+
+        #[cfg(target_arch="aarch64")]
+        let mut planner = FftPlanner::<f64>::new();
+
+        planner.plan_fft_forward(nch * 2)};
+
+    let mut scratch=vec![Complex::<f64>::default();fft.get_inplace_scratch_len()];
     let mut buffer = Array2::<Complex<f64>>::zeros((ncum, nch * 2));
+    
 
     let mut rng = ChaCha8Rng::from_entropy();
 
@@ -144,11 +160,17 @@ fn main() {
             let signal: f64 = rng.sample(StandardNormal);
             *x = (signal * gain).into();
         });
+
+        fft.process_with_scratch(buffer.as_slice_mut().unwrap(), &mut scratch);
+        //fft.process_outofplace_with_scratch(buffer.as_slice_mut().unwrap(), buffer_fft_output.as_slice_mut().unwrap(), &mut scratch);
+
+        /*
         buffer.axis_iter_mut(Axis(0))
         .into_par_iter()
         .for_each(|mut row| {
-            fft.process(row.as_slice_mut().unwrap());
-        });
+            //fft.process(row.as_slice_mut().unwrap());
+            fft.process_with
+        });*/
         let outbuf = buffer
             .slice(s![.., ..nch])
             .map(|x| x.norm_sqr())
