@@ -3,6 +3,7 @@ clap = '3.0.0-beta.5'
 rustfft = '6.0.1'
 ndarray = {version='0.15.4', features=['rayon']}
 ndarray-npy='0.8.1'
+rayon='1.5.1'
 num='0.4.0'
 rand='0.8.4'
 rand_chacha='0.3.1'

@@ -4,6 +4,8 @@ use std::{
     path::Path,
 };
 
+use rayon::prelude::*;
+
 use std::time::{Instant};
 
 use serde_yaml::{from_reader, to_writer};
@@ -21,7 +23,6 @@ use rand_distr::StandardNormal;
 
 use ndarray::{
     s
-    , parallel::prelude::*
     , Array2,
     Axis,
 };
@@ -64,13 +65,13 @@ fn main() {
                 .about("number of points"),
         )
         .arg(
-            Arg::new("state_file")
+            Arg::new("state_file_prefix")
                 .short('s')
                 .long("state")
                 .takes_value(true)
-                .value_name("state file")
+                .value_name("state file prefix")
                 .required(false)
-                .default_value("state.yaml")
+                .default_value("state")
                 .about("pink noise generator state"),
         )
         .arg(
@@ -92,6 +93,16 @@ fn main() {
                 .required(false)
                 .default_value("0.01")
                 .about("gain std in dB"),
+        )
+        .arg(
+            Arg::new("gain_std2")
+                .short('G')
+                .long("gs2")
+                .takes_value(true)
+                .value_name("gain std2")
+                .required(false)
+                .default_value("0")
+                .about("gain std in fraction"),
         )
         .arg(
             Arg::new("out")
@@ -118,17 +129,30 @@ fn main() {
         .unwrap()
         .parse::<f64>()
         .unwrap();
-    let state_fname = matches.value_of("state_file").unwrap();
+
+    let gs2=matches.value_of("gain_std2").unwrap().parse::<f64>().unwrap();
+    let state_fname = matches.value_of("state_file_prefix").unwrap();
+    let state1_name=state_fname.to_string()+".1.yaml";
+    let state2_name=state_fname.to_string()+".2.yaml";
 
     let mut planner = FftPlanner::<f64>::new();
     let fft = planner.plan_fft_forward(nch * 2);
     let mut buffer = Array2::<Complex<f64>>::zeros((ncum, nch * 2));
 
     let mut rng = ChaCha8Rng::from_entropy();
+    let mut rng2=ChaCha8Rng::from_entropy();
 
-    let mut vmpn = if Path::new(state_fname).exists() {
-        println!("read pink noise state from {}", state_fname);
-        let mut state_file = File::open(state_fname).unwrap();
+    let mut vmpn1 = if Path::new(state1_name.as_str()).exists() {
+        println!("read pink noise state from {}", state1_name.as_str());
+        let mut state_file = File::open(state1_name.as_str()).unwrap();
+        from_reader(&mut state_file).unwrap()
+    } else {
+        VmPinkRng::<f64>::new(pno, &mut rng)
+    };
+
+    let mut vmpn2 = if Path::new(state2_name.as_str()).exists() {
+        println!("read pink noise state from {}", state2_name.as_str());
+        let mut state_file = File::open(state2_name.as_str()).unwrap();
         from_reader(&mut state_file).unwrap()
     } else {
         VmPinkRng::<f64>::new(pno, &mut rng)
@@ -140,9 +164,12 @@ fn main() {
             println!("{} {} {:?}",i,  i as f64 / npt as f64, now.elapsed());
         }
         buffer.iter_mut().for_each(|x| {
-            let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
+            //[&mut vmpn1, &mut vmpn2].iter_mut().into_par_iter();
+
+            let gain = 10_f64.powf(vmpn1.get(&mut rng) * gs / 10.0);
+            let g2=vmpn2.get(&mut rng)*gs2;
             let signal: f64 = rng.sample(StandardNormal);
-            *x = (signal * gain).into();
+            *x = (signal * gain+signal.powi(2)*g2).into();
         });
         buffer.axis_iter_mut(Axis(0))
         .into_par_iter()
@@ -155,8 +182,10 @@ fn main() {
             .mean_axis(Axis(0))
             .unwrap();
 
-        let mut state_file = File::create(state_fname).unwrap();
-        to_writer(&mut state_file, &vmpn).unwrap();
+        let mut state_file = File::create(state1_name.as_str()).unwrap();
+        to_writer(&mut state_file, &vmpn1).unwrap();
+        let mut state_file = File::create(state2_name.as_str()).unwrap();
+        to_writer(&mut state_file, &vmpn2).unwrap();
 
         let mut outfile = OpenOptions::new()
             .create(true)
