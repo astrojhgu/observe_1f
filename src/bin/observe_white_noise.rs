@@ -4,13 +4,17 @@ use std::{
     path::Path,
 };
 
-use rayon::prelude::*;
+//use rayon::prelude::*;
 
 use std::time::{Instant};
 
 use serde_yaml::{from_reader, to_writer};
 
-use rustfft::FftPlanner;
+#[cfg(target_arch="x86_64")]
+use rustfft::FftPlannerSse as FftPlanner;
+
+#[cfg(target_arch="aarch64")]
+use rustfft::FftPlanner as FftPlanner;
 
 use rand::{
     Rng,
@@ -135,12 +139,21 @@ fn main() {
     let state1_name=state_fname.to_string()+".1.yaml";
     let state2_name=state_fname.to_string()+".2.yaml";
 
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(nch * 2);
+    
+    let fft = {
+        #[cfg(target_arch="x86_64")]
+        let mut planner = FftPlanner::<f64>::new().unwrap();
+
+        #[cfg(target_arch="aarch64")]
+        let mut planner = FftPlanner::<f64>::new();
+
+        planner.plan_fft_forward(nch * 2)};
+
+    let mut scratch=vec![Complex::<f64>::default();fft.get_inplace_scratch_len()];
     let mut buffer = Array2::<Complex<f64>>::zeros((ncum, nch * 2));
+    
 
     let mut rng = ChaCha8Rng::from_entropy();
-    let mut rng2=ChaCha8Rng::from_entropy();
 
     let mut vmpn1 = if Path::new(state1_name.as_str()).exists() {
         println!("read pink noise state from {}", state1_name.as_str());
@@ -164,18 +177,29 @@ fn main() {
             println!("{} {} {:?}",i,  i as f64 / npt as f64, now.elapsed());
         }
         buffer.iter_mut().for_each(|x| {
-            //[&mut vmpn1, &mut vmpn2].iter_mut().into_par_iter();
+            //[&mut vmpn1, &mut vmpn2].par_iter_mut().zip([&mut rng, &mut rng2].par_iter_mut()).map(|(g,r)|{
+            //    g.get(*r)
+            //});
 
             let gain = 10_f64.powf(vmpn1.get(&mut rng) * gs / 10.0);
-            let g2=vmpn2.get(&mut rng)*gs2;
+            let g2=if gs2==0.0{0.0}
+            else{
+                vmpn2.get(&mut rng)*gs2
+            };
             let signal: f64 = rng.sample(StandardNormal);
             *x = (signal * gain+signal.powi(2)*g2).into();
         });
+
+        fft.process_with_scratch(buffer.as_slice_mut().unwrap(), &mut scratch);
+        //fft.process_outofplace_with_scratch(buffer.as_slice_mut().unwrap(), buffer_fft_output.as_slice_mut().unwrap(), &mut scratch);
+
+        /*
         buffer.axis_iter_mut(Axis(0))
         .into_par_iter()
         .for_each(|mut row| {
-            fft.process(row.as_slice_mut().unwrap());
-        });
+            //fft.process(row.as_slice_mut().unwrap());
+            fft.process_with
+        });*/
         let outbuf = buffer
             .slice(s![.., ..nch])
             .map(|x| x.norm_sqr())
