@@ -2,6 +2,11 @@ use std::{
     fs::{File, OpenOptions},
     io::Write,
     path::Path,
+    thread,
+};
+
+use flume::{
+    bounded
 };
 
 //use rayon::prelude::*;
@@ -19,6 +24,7 @@ use rustfft::FftPlanner as FftPlanner;
 use rand::{
     Rng,
     SeedableRng, //, thread_rng
+    thread_rng
 };
 
 use rand_chacha::ChaCha8Rng;
@@ -38,7 +44,7 @@ use num::complex::Complex;
 
 use clap::{App, Arg};
 
-use pinknoise::VmPinkRng;
+use pinknoise::RandVmPinkRng;
 
 #[inline]
 fn saturate(x:f64, p:f64)->f64{
@@ -142,7 +148,7 @@ fn main() {
 
     let satu=matches.value_of("saturation").unwrap().parse::<f64>().unwrap();
 
-    let state_fname = matches.value_of("state_file").unwrap();
+    let state_fname = matches.value_of("state_file").unwrap().to_string();
     
     let fft = {
         #[cfg(target_arch="x86_64")]
@@ -154,37 +160,53 @@ fn main() {
         planner.plan_fft_forward(nch * 2)};
 
     let mut scratch=vec![Complex::<f64>::default();fft.get_inplace_scratch_len()];
-    let mut buffer = Array2::<Complex<f64>>::zeros((ncum, nch * 2));
+    
     
 
     let mut rng = ChaCha8Rng::from_entropy();
 
-    let mut vmpn = if Path::new(state_fname).exists() {
+    let mut vmpn = if Path::new(&state_fname).exists() {
         println!("read pink noise state from {}", state_fname);
-        let mut state_file = File::open(state_fname).unwrap();
+        let mut state_file = File::open(&state_fname).unwrap();
         from_reader(&mut state_file).unwrap()
     } else {
-        VmPinkRng::<f64>::new(pno, &mut rng)
+        RandVmPinkRng::<f64>::new(pno, &mut rng)
     };
+
+    let (tx, rx)=bounded::<Array2<Complex<f64>>>(2);
+
+    let th=thread::spawn(move ||{
+        let mut rng = ChaCha8Rng::from_entropy();
+        loop {
+            let mut buffer = Array2::<Complex<f64>>::zeros((ncum, nch * 2));
+            buffer.iter_mut().for_each(|x| {
+                //[&mut vmpn, &mut vmpn2].par_iter_mut().zip([&mut rng, &mut rng2].par_iter_mut()).map(|(g,r)|{
+                //    g.get(*r)
+                //});
+                
+                let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
+                let signal: f64 = rng.sample(StandardNormal);
+                *x = (signal * gain).into();
+            });
+            buffer.par_map_inplace(|x| x.re=saturate(x.re, satu));
+            tx.send(buffer).unwrap();
+            let mut state_file = File::create(&state_fname).unwrap();
+            to_writer(&mut state_file, &vmpn).unwrap();    
+        }
+    });
 
     let now = Instant::now();
     for i in 0..npt {
         {
             println!("{} {} {:?}",i,  i as f64 / npt as f64, now.elapsed());
         }
-        buffer.iter_mut().for_each(|x| {
-            //[&mut vmpn, &mut vmpn2].par_iter_mut().zip([&mut rng, &mut rng2].par_iter_mut()).map(|(g,r)|{
-            //    g.get(*r)
-            //});
-
-            let gain = 10_f64.powf(vmpn.get(&mut rng) * gs / 10.0);
-            let signal: f64 = rng.sample(StandardNormal);
-            *x = (signal * gain).into();
-        });
-
-        buffer.par_map_inplace(|x| x.re=saturate(x.re, satu));
-
+        let now1 = Instant::now();
+        let mut buffer=rx.recv().unwrap();
+        
+        println!("sim: {:?}", now1.elapsed());
+        let now1 = Instant::now();
         fft.process_with_scratch(buffer.as_slice_mut().unwrap(), &mut scratch);
+        println!("fft: {:?}", now1.elapsed());
         //fft.process_outofplace_with_scratch(buffer.as_slice_mut().unwrap(), buffer_fft_output.as_slice_mut().unwrap(), &mut scratch);
 
         /*
@@ -200,8 +222,6 @@ fn main() {
             .mean_axis(Axis(0))
             .unwrap();
 
-        let mut state_file = File::create(state_fname).unwrap();
-        to_writer(&mut state_file, &vmpn).unwrap();
         
 
         let mut outfile = OpenOptions::new()
@@ -219,4 +239,5 @@ fn main() {
             })
             .unwrap();
     }
+    th.join().unwrap();
 }
