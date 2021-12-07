@@ -197,9 +197,6 @@ fn main() {
 
     let now = Instant::now();
     for i in 0..npt {
-        {
-            println!("{} {} {} {}",i,  i as f64 / npt as f64, now.elapsed().as_secs(), now.elapsed().as_secs_f64()/(i as isize as f64+1.0));
-        }
         let now1 = Instant::now();
         let mut buffer=rx.recv().unwrap();
         
@@ -238,6 +235,10 @@ fn main() {
                 )
             })
             .unwrap();
+        
+        let t_elapsed=now.elapsed().as_secs_f64();
+        println!("{} {} {} {}",i,  i as f64 / npt as f64,t_elapsed , t_elapsed/(i as isize as f64+1.0));
+        
     }
     th.join().unwrap();
 }
